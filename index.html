@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simple Multiplayer Game</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+        }
+        #gameArea {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            background-color: #f0f0f0;
+        }
+        .player {
+            position: absolute;
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            font-weight: bold;
+        }
+        #joinForm {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.2);
+            text-align: center;
+        }
+        input, button {
+            margin: 5px;
+            padding: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div id="gameArea">
+        <div id="joinForm">
+            <h2>Join Game</h2>
+            <input type="text" id="playerName" placeholder="Your name">
+            <button id="joinButton">Join</button>
+        </div>
+    </div>
+
+    <!-- Firebase SDK -->
+    <script type="module">
+        // Import the functions you need from the SDKs you need
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-app.js";
+        import { getAnalytics } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-analytics.js";
+        import { getDatabase, ref, set, onValue, onDisconnect, update } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-database.js";
+        
+        // Your web app's Firebase configuration
+        const firebaseConfig = {
+            apiKey: "AIzaSyDGiEh7Qfc03p2y1zc9iDAE8uzcLSG19CI",
+            authDomain: "mmotest-462f1.firebaseapp.com",
+            projectId: "mmotest-462f1",
+            storageBucket: "mmotest-462f1.firebasestorage.app",
+            messagingSenderId: "233983437208",
+            appId: "1:233983437208:web:10f8b4772c9ad0362323ed",
+            measurementId: "G-YX7R7V0P4R",
+            databaseURL: "https://mmotest-462f1-default-rtdb.firebaseio.com" // Added database URL
+        };
+
+        // Initialize Firebase
+        const app = initializeApp(firebaseConfig);
+        const analytics = getAnalytics(app);
+        const database = getDatabase();
+        const playersRef = ref(database, 'players');
+
+        // Game variables
+        let currentPlayer = null;
+        let players = {};
+        const colors = ["#FF5733", "#33FF57", "#3357FF", "#F033FF", "#FF33F6", "#33FFF6"];
+
+        // DOM elements
+        const gameArea = document.getElementById('gameArea');
+        const joinForm = document.getElementById('joinForm');
+        const playerNameInput = document.getElementById('playerName');
+        const joinButton = document.getElementById('joinButton');
+
+        // Join game
+        joinButton.addEventListener('click', () => {
+            const playerName = playerNameInput.value.trim();
+            if (playerName) {
+                // Create player with random position
+                currentPlayer = {
+                    id: Date.now().toString(),
+                    name: playerName,
+                    x: Math.floor(Math.random() * (window.innerWidth - 100)) + 50,
+                    y: Math.floor(Math.random() * (window.innerHeight - 100)) + 50,
+                    color: colors[Math.floor(Math.random() * colors.length)]
+                };
+
+                // Add player to Firebase
+                set(ref(database, 'players/' + currentPlayer.id), currentPlayer);
+
+                // Remove player when disconnected
+                onDisconnect(ref(database, 'players/' + currentPlayer.id)).remove();
+
+                // Hide join form
+                joinForm.style.display = 'none';
+
+                // Start listening for movement keys
+                window.addEventListener('keydown', handleKeyPress);
+            }
+        });
+
+        // Handle key presses for movement
+        function handleKeyPress(e) {
+            if (!currentPlayer) return;
+
+            const speed = 10;
+            let newX = currentPlayer.x;
+            let newY = currentPlayer.y;
+
+            switch (e.key) {
+                case 'ArrowUp':
+                    newY = Math.max(0, currentPlayer.y - speed);
+                    break;
+                case 'ArrowDown':
+                    newY = Math.min(window.innerHeight - 50, currentPlayer.y + speed);
+                    break;
+                case 'ArrowLeft':
+                    newX = Math.max(0, currentPlayer.x - speed);
+                    break;
+                case 'ArrowRight':
+                    newX = Math.min(window.innerWidth - 50, currentPlayer.x + speed);
+                    break;
+            }
+
+            if (newX !== currentPlayer.x || newY !== currentPlayer.y) {
+                currentPlayer.x = newX;
+                currentPlayer.y = newY;
+                // Update position in Firebase
+                update(ref(database, 'players/' + currentPlayer.id), {
+                    x: newX,
+                    y: newY
+                });
+            }
+        }
+
+        // Listen for changes in players
+        onValue(playersRef, (snapshot) => {
+            // Clear previous players
+            for (const playerId in players) {
+                if (players[playerId].element) {
+                    players[playerId].element.remove();
+                }
+            }
+            players = {};
+
+            // Add all current players
+            const data = snapshot.val() || {};
+            for (const playerId in data) {
+                const playerData = data[playerId];
+                addOrUpdatePlayer(playerData);
+            }
+        });
+
+        // Add or update player on screen
+        function addOrUpdatePlayer(playerData) {
+            if (!players[playerData.id]) {
+                // New player - create element
+                const playerElement = document.createElement('div');
+                playerElement.className = 'player';
+                playerElement.style.backgroundColor = playerData.color;
+                playerElement.textContent = playerData.name.substring(0, 2).toUpperCase();
+
+                gameArea.appendChild(playerElement);
+                players[playerData.id] = {
+                    data: playerData,
+                    element: playerElement
+                };
+            }
+
+            // Update position
+            const playerElement = players[playerData.id].element;
+            playerElement.style.left = `${playerData.x}px`;
+            playerElement.style.top = `${playerData.y}px`;
+            players[playerData.id].data = playerData;
+        }
+    </script>
+    <script>
+        // Global variables needed for non-module script
+        let currentPlayer = null;
+        let players = {};
+        const colors = ["#FF5733", "#33FF57", "#3357FF", "#F033FF", "#FF33F6", "#33FFF6"];
+        const gameArea = document.getElementById('gameArea');
+        const joinForm = document.getElementById('joinForm');
+        const playerNameInput = document.getElementById('playerName');
+        const joinButton = document.getElementById('joinButton');
+    </script>
+</body>
+</html>
